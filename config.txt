@@ -1,0 +1,19 @@
+#Config File
+
+size of scm = 10;		#GB
+size of ssd = 100;
+size of hdd = 51200;
+size of chk = 256;	#MB
+
+window size = 120;	#Min(TIME)
+
+threshold rw  = 1.0;	#R/W
+threshold cbr = 0.8;
+threshold car = 0.2;
+threshold seq = 512;	#Blocks
+
+threshold inactive = 5;
+threshold intensive = 2;
+
+size of stream = 4;
+size of stride = 0;	#Blocks
