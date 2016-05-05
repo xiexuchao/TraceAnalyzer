@@ -23,18 +23,18 @@ void pool_run(char *trace,char *config,char *output,char *log)
 		pool->req_in_window++;
 		if(pool->req_in_window==1)
 		{
-			pool->window_time_start=pool->req->time;
-		}
-		pool->window_time_end=pool->req->time;
+			pool->window_time_start=pool->req->time;	//us
+		}	
+		pool->window_time_end=pool->req->time;			//us
 
-		if(((pool->window_time_end-pool->window_time_start)>=pool->window_size*60*1000)||((feof(pool->file_trace)!=0)&&(pool->window_time_end>0)))
+		if(((pool->window_time_end-pool->window_time_start)>=pool->window_size*60*1000*1000)||((feof(pool->file_trace)!=0)&&(pool->window_time_end>0)))
 		{
-			printf("----------------\n");
+			/*printf("----------------\n");
 			printf("req wind=%d \n",pool->req_in_window);
 			printf("req time=%lld \n",pool->req->time);
 			printf("beg time=%lld \n",pool->window_time_start);
 			printf("end time=%lld \n",pool->window_time_end);
-			printf("win time=%lld \n",pool->window_time_end-pool->window_time_start);
+			printf("win time=%lld \n",pool->window_time_end-pool->window_time_start);*/
 
 			stream_flush(pool);
 			pattern_recognize(pool);
@@ -47,12 +47,13 @@ void pool_run(char *trace,char *config,char *output,char *log)
 	fclose(pool->file_output);
 	fclose(pool->file_log);
 
-	free(pool->map);
+	free(pool->mapTab);
+	free(pool->revTab);
 	free(pool->chunk);
-	free(pool->record_win);
-	free(pool->record_all);
 	free(pool->req);
 	free(pool->stream);
+	free(pool->record_win);
+	free(pool->record_all);
 	free(pool);
 }
 
@@ -73,81 +74,35 @@ void pattern_recognize(struct pool_info *pool)
 			/*No Access*/
 			if(pool->record_all[i].accessed!=0)
 			{
-				pool->i_non_access++;
+				pool->i_noaccess++;
 			}
-			pool->chunk[i].pattern=PATTERN_NON_ACCESS;
-			pool->chunk[i].location_next=HDD;
+			pool->chunk[i].pattern=PATTERN_NOACCESS;
+			pool->chunk[i].location_next=POOL_HDD;
 		}
 		else if(pool->chunk[i].req_sum_all < pool->threshold_inactive)//inactive
 		{
 			/*Inactive*/
 			pool->i_inactive++;
-			if(((long double)pool->chunk[i].req_sum_read/(long double)pool->chunk[i].req_sum_all)>=pool->threshold_rw)
-			{
-				/*Inactive Read*/
-				pool->chunk[i].pattern=PATTERN_INACTIVE_R;
-				pool->chunk[i].location_next=HDD;
-			}
-			else if(((long double)pool->chunk[i].req_sum_write/(long double)pool->chunk[i].req_sum_all)>=pool->threshold_rw)
-			{
-				/*Inactive Write*/
-				pool->chunk[i].pattern=PATTERN_INACTIVE_W;
-				pool->chunk[i].location_next=HDD;
-			}
-			else{
-				/*Inactive Hybrid*/
-				pool->chunk[i].pattern=PATTERN_INACTIVE_H;
-				pool->chunk[i].location_next=HDD;
-			}
+			pool->chunk[i].pattern=PATTERN_INACTIVE;
+			pool->chunk[i].location_next=POOL_HDD;
 		}
 		else if(((long double)pool->chunk[i].seq_size_all/(long double)pool->chunk[i].req_size_all)>=pool->threshold_cbr &&
 			((long double)pool->chunk[i].seq_sum_all/(long double)pool->chunk[i].req_sum_all)>=pool->threshold_car)
 		{
 			/*SEQUENTIAL*/
-			/*Sequential Intensive*/
-			if(pool->chunk[i].req_sum_all>=(pool->req_in_window/pool->chunk_win)*pool->threshold_intensive)
+			if(((long double)pool->chunk[i].req_sum_read/(long double)pool->chunk[i].req_sum_all)>=pool->threshold_rw)
 			{
-				pool->i_seq_intensive++;
-				if(((long double)pool->chunk[i].req_sum_read/(long double)pool->chunk[i].req_sum_all)>=pool->threshold_rw)
-				{
-					/*Sequential Intensive Read*/
-					pool->chunk[i].pattern=PATTERN_SEQ_INTENSIVE_R;
-					pool->chunk[i].location_next=SSD;
-				}
-				else if(((long double)pool->chunk[i].req_sum_write/(long double)pool->chunk[i].req_sum_all)>=pool->threshold_rw)
-				{
-					/*Sequential Intensive Write*/
-					pool->chunk[i].pattern=PATTERN_SEQ_INTENSIVE_W;
-					pool->chunk[i].location_next=SCM;
-				}
-				else
-				{
-					/*Sequential Intensive Hybrid*/
-					pool->chunk[i].pattern=PATTERN_SEQ_INTENSIVE_H;
-					pool->chunk[i].location_next=SCM;
-				}
+				/*Sequential Read*/
+				pool->i_active_seq_r++;
+				pool->chunk[i].pattern=PATTERN_ACTIVE_SEQ_R;
+				pool->chunk[i].location_next=POOL_SSD;
 			}
 			else
 			{
-				pool->i_seq_less_intensive++;
-				if(((long double)pool->chunk[i].req_sum_read/(long double)pool->chunk[i].req_sum_all)>=pool->threshold_rw)
-				{
-					/*Sequential Less Intensive Read*/
-					pool->chunk[i].pattern=PATTERN_SEQ_LESS_INTENSIVE_R;
-					pool->chunk[i].location_next=HDD;
-				}
-				else if(((long double)pool->chunk[i].req_sum_write/(long double)pool->chunk[i].req_sum_all)>=pool->threshold_rw)
-				{
-					/*Sequential Less Intensive Write*/
-					pool->chunk[i].pattern=PATTERN_SEQ_LESS_INTENSIVE_W;
-					pool->chunk[i].location_next=HDD;
-				}
-				else
-				{
-					/*Sequential Less Intensive Hybrid*/
-					pool->chunk[i].pattern=PATTERN_SEQ_LESS_INTENSIVE_H;
-					pool->chunk[i].location_next=HDD;
-				}
+				/*Sequential Write*/
+				pool->i_active_seq_w++;
+				pool->chunk[i].pattern=PATTERN_ACTIVE_SEQ_W;
+				pool->chunk[i].location_next=POOL_SCM;
 			}
 		}
 		else
@@ -155,46 +110,36 @@ void pattern_recognize(struct pool_info *pool)
 			/*Random*/
 			if(pool->chunk[i].req_sum_all>=(pool->req_in_window/pool->chunk_win)*pool->threshold_intensive)
 			{
-				pool->i_random_intensive++;
 				if(((long double)pool->chunk[i].req_sum_read/(long double)pool->chunk[i].req_sum_all)>=pool->threshold_rw)
 				{
-					/*Random Intensive Read*/
-					pool->chunk[i].pattern=PATTERN_RANDOM_INTENSIVE_R;
-					pool->chunk[i].location_next=SSD;
-				}
-				else if(((long double)pool->chunk[i].req_sum_write/(long double)pool->chunk[i].req_sum_all)>=pool->threshold_rw)
-				{
-					/*Random Intensive Write*/
-					pool->chunk[i].pattern=PATTERN_RANDOM_INTENSIVE_W;
-					pool->chunk[i].location_next=SCM;
+					/*Active Random Read*/
+					pool->i_active_rdm_over_r++;
+					pool->chunk[i].pattern=PATTERN_ACTIVE_RDM_OVER_R;
+					pool->chunk[i].location_next=POOL_SSD;
 				}
 				else
 				{
-					/*Random Intensive Hybrid*/
-					pool->chunk[i].pattern=PATTERN_RANDOM_INTENSIVE_H;
-					pool->chunk[i].location_next=SCM;
+					/*Active Random Write*/
+					pool->i_active_rdm_over_w++;
+					pool->chunk[i].pattern=PATTERN_ACTIVE_RDM_OVER_W;
+					pool->chunk[i].location_next=POOL_SCM;
 				}
 			}
 			else
 			{
-				pool->i_random_less_intensive++;
 				if(((long double)pool->chunk[i].req_sum_read/(long double)pool->chunk[i].req_sum_all)>=pool->threshold_rw)
 				{
 					/*Random Less Intensive Read*/
-					pool->chunk[i].pattern=PATTERN_RANDOM_LESS_INTENSIVE_R;
-					pool->chunk[i].location_next=SSD;
-				}
-				else if(((long double)pool->chunk[i].req_sum_write/(long double)pool->chunk[i].req_sum_all)>=pool->threshold_rw)
-				{
-					/*Random Less Intensive Write*/
-					pool->chunk[i].pattern=PATTERN_RANDOM_LESS_INTENSIVE_W;
-					pool->chunk[i].location_next=SSD;
+					pool->i_active_rdm_fuly_r++;
+					pool->chunk[i].pattern=PATTERN_ACTIVE_RDM_FULY_R;
+					pool->chunk[i].location_next=POOL_SSD;
 				}
 				else
 				{
-					/*Random Less Intensive Hybrid*/
-					pool->chunk[i].pattern=PATTERN_RANDOM_LESS_INTENSIVE_H;
-					pool->chunk[i].location_next=SSD;
+					/*Random Less Intensive Write*/
+					pool->i_active_rdm_fuly_w++;
+					pool->chunk[i].pattern=PATTERN_ACTIVE_RDM_FULY_W;
+					pool->chunk[i].location_next=POOL_SSD;
 				}
 			}
 		}
@@ -205,12 +150,14 @@ void pattern_recognize(struct pool_info *pool)
 
 			pool->chunk[i].history_pattern[pool->window_sum]=pool->chunk[i].pattern;
 
-			pool->pattern_non_access[pool->window_sum]=pool->i_non_access/(double)pool->chunk_all;
+			pool->pattern_noaccess[pool->window_sum]=pool->i_noaccess/(double)pool->chunk_all;
 			pool->pattern_inactive[pool->window_sum]=pool->i_inactive/(double)pool->chunk_all;
-			pool->pattern_seq_intensive[pool->window_sum]=pool->i_seq_intensive/(double)pool->chunk_all;
-			pool->pattern_seq_less_intensive[pool->window_sum]=pool->i_seq_less_intensive/(double)pool->chunk_all;
-			pool->pattern_random_intensive[pool->window_sum]=pool->i_random_intensive/(double)pool->chunk_all;
-			pool->pattern_random_less_intensive[pool->window_sum]=pool->i_random_less_intensive/(double)pool->chunk_all;
+			pool->pattern_active_seq_r[pool->window_sum]=pool->i_active_seq_r/(double)pool->chunk_all;
+			pool->pattern_active_seq_w[pool->window_sum]=pool->i_active_seq_w/(double)pool->chunk_all;
+			pool->pattern_active_rdm_over_r[pool->window_sum]=pool->i_active_rdm_over_r/(double)pool->chunk_all;
+			pool->pattern_active_rdm_over_w[pool->window_sum]=pool->i_active_rdm_over_w/(double)pool->chunk_all;
+			pool->pattern_active_rdm_fuly_r[pool->window_sum]=pool->i_active_rdm_fuly_r/(double)pool->chunk_all;
+			pool->pattern_active_rdm_fuly_w[pool->window_sum]=pool->i_active_rdm_fuly_w/(double)pool->chunk_all;
 		}
 
 		//print_log(pool,i);	//print info of each chunk in this window to log file.
@@ -232,6 +179,19 @@ void pattern_recognize(struct pool_info *pool)
 		pool->chunk[i].seq_stream_all=0;
 		pool->chunk[i].seq_stream_read=0;
 		pool->chunk[i].seq_stream_write=0;
+
+		/************************************
+			update mapping information
+		*************************************/
+		if(pool->chunk[i].location_next==POOL_SCM)
+		{
+			if()
+			if(find_free(pool,POOL_SCM)!=-1)
+			{
+				
+			}
+		}
+		
 	}//for
 
 	/*Update the pool info*/
@@ -248,12 +208,14 @@ void pattern_recognize(struct pool_info *pool)
 	pool->req_in_window=0;
 	pool->time_in_window=0;
 
-	pool->i_non_access=0;
+	pool->i_noaccess=0;
 	pool->i_inactive=0;
-	pool->i_seq_intensive=0;
-	pool->i_seq_less_intensive=0;
-	pool->i_random_intensive=0;
-	pool->i_random_less_intensive=0;
+	pool->i_active_seq_r=0;
+	pool->i_active_seq_w=0;
+	pool->i_active_rdm_over_r=0;
+	pool->i_active_rdm_over_w=0;
+	pool->i_active_rdm_fuly_r=0;
+	pool->i_active_rdm_fuly_w=0;
 
 	//accessed chunks in each window
 	memset(pool->record_win,0,sizeof(struct record_info)*pool->chunk_sum);

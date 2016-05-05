@@ -42,6 +42,39 @@ int warmup(struct pool_info *pool)
 			pool->chunk_all++;
 			pool->record_all[chk_id].accessed=1;
 		}
+		/****************************************
+			warm up the whole storage pools
+		*****************************************/
+		if(pool->mapTab[chk_id].pcn==-1)
+		{
+			if(chk_id < pool->chunk_scm)
+			{
+				pool->free_chk_scm--;
+			}
+			else if(chk_id < (pool->chunk_scm+pool->chunk_ssd))
+			{
+				pool->free_chk_ssd--;
+			}
+			else
+			{
+				pool->free_chk_hdd--;
+			}
+		}
+		pool->mapTab[chk_id].pcn=chk_id;
+		pool->revTab[chk_id].lcn=chk_id;
+		if(chk_id<pool->chunk_scm)
+		{
+			pool->chunk[chk_id].location=POOL_SCM;
+		}
+		else if(chk_id < pool->chunk_scm+pool->chunk_ssd)
+		{
+			pool->chunk[chk_id].location=POOL_SSD;
+		}
+		else
+		{
+			pool->chunk[chk_id].location=POOL_HDD;
+		}
+		/***************************************/		
 	}
 	pool->chunk_min=(int)(lba_min/(pool->size_chk*1024*2));
 	pool->chunk_max=(int)(lba_max/(pool->size_chk*1024*2));

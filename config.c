@@ -12,12 +12,21 @@ void load_parameters(struct pool_info *pool,char *config)
 
     while(fgets(buf,sizeof(buf),pool->file_config))
     {
-        if(buf[0]=='#'||buf[0]==' ') continue;
+        if(buf[0]=='#'||buf[0]==' ') 
+		{
+			continue;
+		}
         ptr=strchr(buf,'=');
-        if(!ptr) continue;
+        if(!ptr) 
+		{
+			continue;
+		}
         name=ptr-buf;	//the end of name string+1
         value=name+1;	//the start of value string
-        while(buf[name-1]==' ') name--;
+        while(buf[name-1]==' ') 
+		{
+			name--;
+		}
         buf[name]=0;
 
 		if(strcmp(buf,"size of scm")==0)
@@ -133,23 +142,27 @@ void initialize(struct pool_info *pool,char *trace,char *output,char *log)
 	pool->req_in_window=0;
 	pool->time_in_window=0;
 
-	pool->i_non_access=0;
+	pool->i_noaccess=0;
 	pool->i_inactive=0;
-	pool->i_seq_intensive=0;
-	pool->i_seq_less_intensive=0;
-	pool->i_random_intensive=0;
-	pool->i_random_less_intensive=0;
+	pool->i_active_seq_r=0;
+	pool->i_active_seq_w=0;
+	pool->i_active_rdm_over_r=0;
+	pool->i_active_rdm_over_w=0;
+	pool->i_active_rdm_fuly_r=0;
+	pool->i_active_rdm_fuly_w=0;
 
     for(i=0;i<SIZE_ARRAY;i++)
     {
         pool->chunk_access[i]=0;
 
-        pool->pattern_non_access[i]=0;
+        pool->pattern_noaccess[i]=0;
         pool->pattern_inactive[i]=0;
-        pool->pattern_seq_intensive[i]=0;
-        pool->pattern_seq_less_intensive[i]=0;
-        pool->pattern_random_intensive[i]=0;
-        pool->pattern_random_less_intensive[i]=0;
+        pool->pattern_active_seq_r[i]=0;
+		pool->pattern_active_seq_w[i]=0;
+        pool->pattern_active_rdm_over_r[i]=0;
+		pool->pattern_active_rdm_over_w[i]=0;
+        pool->pattern_active_rdm_fuly_r[i]=0;
+		pool->pattern_active_rdm_fuly_w[i]=0;
     }
 
 	strcpy(pool->filename_trace,trace);
@@ -159,21 +172,30 @@ void initialize(struct pool_info *pool,char *trace,char *output,char *log)
     pool->file_output=fopen(pool->filename_output,"w");
     pool->file_log=fopen(pool->filename_log,"w");
 
+	pool->mapTab=(struct map_info *)malloc(sizeof(struct map_info)*pool->chunk_sum);
+	alloc_assert(pool->mapTab,"pool->mapTab");
+	memset(pool->mapTab,0,sizeof(struct map_info));
+
+	pool->revTab=(struct map_info *)malloc(sizeof(struct map_info)*pool->chunk_sum);
+	alloc_assert(pool->revTab,"pool->revTab");
+	memset(pool->revTab,0,sizeof(struct map_info));
+	
 	pool->chunk=(struct chunk_info *)malloc(sizeof(struct chunk_info)*pool->chunk_sum);
 	alloc_assert(pool->chunk,"pool->chunk");
 	memset(pool->chunk,0,sizeof(struct chunk_info)*pool->chunk_sum);
+	
 	pool->req=(struct request_info *)malloc(sizeof(struct request_info));
 	alloc_assert(pool->req,"pool->req");
 	memset(pool->req,0,sizeof(struct request_info));
+	
 	pool->stream=(struct stream_info *)malloc(sizeof(struct stream_info)*pool->size_stream);
 	alloc_assert(pool->stream,"pool->stream");
 	memset(pool->stream,0,sizeof(struct stream_info)*pool->size_stream);
-	pool->map=(struct map_info *)malloc(sizeof(struct map_info)*pool->chunk_sum);
-	alloc_assert(pool->map,"pool->map");
-	memset(pool->map,0,sizeof(struct map_info));
+	
 	pool->record_win=(struct record_info *)malloc(sizeof(struct record_info)*pool->chunk_sum);
 	alloc_assert(pool->record_win,"pool->record_win");
 	memset(pool->record_win,0,sizeof(struct record_info)*pool->chunk_sum);
+	
 	pool->record_all=(struct record_info *)malloc(sizeof(struct record_info)*pool->chunk_sum);
 	alloc_assert(pool->record_all,"pool->record_all");
 	memset(pool->record_all,0,sizeof(struct record_info)*pool->chunk_sum);
@@ -181,17 +203,22 @@ void initialize(struct pool_info *pool,char *trace,char *output,char *log)
     printf("-------------Initializing...chunk_sum=%d------------\n",pool->chunk_sum);
     for(i=0;i<pool->chunk_sum;i++)
     {
-        pool->map[i].lcn=i;
-        pool->map[i].pcn=i;
+		//mapping table
+        pool->mapTab[i].lcn=i;
+        pool->mapTab[i].pcn=-1;
+		//reverse mapping table
+		pool->revTab[i].pcn=i;
+		pool->revTab[i].lcn=-1;
 
         pool->record_win[i].accessed=0;
         pool->record_all[i].accessed=0;
        
+		pool->chunk[i].pcn=i;	//physical chk number
 		//chunk-level statistic
         pool->chunk[i].pattern=PATTERN_UNKNOWN;
         pool->chunk[i].pattern_last=PATTERN_UNKNOWN;
-		pool->chunk[i].location=HDD;
-        pool->chunk[i].location_next=HDD;
+		pool->chunk[i].location=POOL_HDD;		//******************
+        pool->chunk[i].location_next=POOL_HDD;	//might need to review
 
         pool->chunk[i].req_sum_all=0;
         pool->chunk[i].req_sum_read=0;

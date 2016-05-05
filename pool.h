@@ -7,42 +7,36 @@
 #include <time.h>
 
 #include "detector.h"
+#include "migration.h"
 
 #define SUCCESS		0
 #define FAILURE		1
 #define READ		0
 #define WRITE		1
+#define BUSY		0
+#define FREE		1
 
-#define SCM			1
-#define SSD			2
-#define HDD			3
+#define POOL_SCM			1
+#define POOL_SSD			2
+#define POOL_HDD			3
 
 #define SIZE_BUFFER 200
-#define SIZE_ARRAY	250
+#define SIZE_ARRAY	500
 
 //IO Patterns
 #define PATTERN_UNKNOWN						' '
 
-#define PATTERN_NON_ACCESS					'_'	
-#define PATTERN_INACTIVE_R					'I'
-#define PATTERN_INACTIVE_W					'i'
-#define PATTERN_INACTIVE_H					'!'
+#define PATTERN_NOACCESS					'_'	
+#define PATTERN_INACTIVE					'I'
 
-#define PATTERN_SEQ_INTENSIVE_R				'1'	
-#define PATTERN_SEQ_INTENSIVE_W				'2'	
-#define PATTERN_SEQ_INTENSIVE_H				'3'	
+#define PATTERN_ACTIVE_SEQ_R				'S'
+#define PATTERN_ACTIVE_SEQ_W				's'
 
-#define PATTERN_SEQ_LESS_INTENSIVE_R		'A'	
-#define PATTERN_SEQ_LESS_INTENSIVE_W		'B'	
-#define PATTERN_SEQ_LESS_INTENSIVE_H		'C'	
+#define PATTERN_ACTIVE_RDM_OVER_R			'R'
+#define PATTERN_ACTIVE_RDM_OVER_W			'W'
 
-#define PATTERN_RANDOM_INTENSIVE_R			'R'	
-#define PATTERN_RANDOM_INTENSIVE_W			'W'	
-#define PATTERN_RANDOM_INTENSIVE_H			'H'	
-
-#define PATTERN_RANDOM_LESS_INTENSIVE_R		'r'	
-#define PATTERN_RANDOM_LESS_INTENSIVE_W		'w'	
-#define PATTERN_RANDOM_LESS_INTENSIVE_H		'h'	
+#define PATTERN_ACTIVE_RDM_FULY_W			'r'
+#define PATTERN_ACTIVE_RDM_FULY_R			'w'
 
 struct pool_info{
 	/*For Storage Pool*/   
@@ -115,22 +109,37 @@ struct pool_info{
 	unsigned int req_in_window;
 	long double  time_in_window;
 
-	double i_non_access;
+	/*
+#define PATTERN_NOACCESS					'_'	
+#define PATTERN_INACTIVE					'I'
+#define PATTERN_ACTIVE_SEQ_R				'S'
+#define PATTERN_ACTIVE_SEQ_W				's'
+#define PATTERN_ACTIVE_RDM_OVER_R			'R'
+#define PATTERN_ACTIVE_RDM_OVER_W			'W'
+#define PATTERN_ACTIVE_RDM_FULY_W			'r'
+#define PATTERN_ACTIVE_RDM_FULY_R			'w'
+	*/
+
+	double i_noaccess;
 	double i_inactive;
-	double i_seq_intensive;
-	double i_seq_less_intensive;
-	double i_random_intensive;
-	double i_random_less_intensive;
+	double i_active_seq_r;
+	double i_active_seq_w;
+	double i_active_rdm_over_r;
+	double i_active_rdm_over_w;
+	double i_active_rdm_fuly_r;
+	double i_active_rdm_fuly_w;
 
     unsigned int chunk_access[SIZE_ARRAY];
 
     char   buffer[SIZE_BUFFER];
-    double pattern_non_access[SIZE_ARRAY];
+    double pattern_noaccess[SIZE_ARRAY];
 	double pattern_inactive[SIZE_ARRAY];
-    double pattern_seq_intensive[SIZE_ARRAY];
-    double pattern_seq_less_intensive[SIZE_ARRAY];
-    double pattern_random_intensive[SIZE_ARRAY];
-    double pattern_random_less_intensive[SIZE_ARRAY];
+    double pattern_active_seq_r[SIZE_ARRAY];
+	double pattern_active_seq_w[SIZE_ARRAY];
+    double pattern_active_rdm_over_r[SIZE_ARRAY];
+	double pattern_active_rdm_over_w[SIZE_ARRAY];
+    double pattern_active_rdm_fuly_r[SIZE_ARRAY];
+	double pattern_active_rdm_fuly_w[SIZE_ARRAY];
 
     char filename_trace[100];
     char filename_output[100];
@@ -141,18 +150,20 @@ struct pool_info{
     FILE *file_config;
     FILE *file_log;
 
-    struct map_info		*map;
+	struct map_info		*mapTab;
+	struct map_info		*revTab;
     struct chunk_info	*chunk;
-    struct record_info	*record_win; //how many chks were accessed in a window
-    struct record_info	*record_all; //total chks accessed in trace file
     struct request_info *req;
     struct stream_info	*stream;
+	struct record_info	*record_win; //how many chks were accessed in a window
+    struct record_info	*record_all; //total chks accessed in trace file
 };
 
 struct chunk_info{
+	unsigned int pcn;
     unsigned int pattern;	
-    unsigned int pattern_last;// related to current IO pattern
-    unsigned int location;	//SCM,SSD OR HDD
+    unsigned int pattern_last;	// related to current IO pattern
+    unsigned int location;		//SCM,SSD OR HDD
     unsigned int location_next;
 
     /*information in a window*/
@@ -186,8 +197,8 @@ struct request_info{
 };
 
 struct map_info{
-    unsigned int lcn;	//logical chunk number
-    unsigned int pcn;	//physical chunk number
+    int lcn;	//logical chunk number
+    int pcn;	//physical chunk number
     unsigned int location;
 };
 
@@ -203,6 +214,9 @@ int get_request(struct pool_info *pool);
 void stat_update(struct pool_info *pool);
 void stat_print(struct pool_info *pool);
 void alloc_assert(void *p,char *s);
+//map.c
+int find_free(struct pool_info *pool,int type);
+void update_map(struct pool_info *pool,int i);
 
 void pool_run(char *trace,char *config,char *output,char *log);
 void pattern_recognize(struct pool_info *pool);
