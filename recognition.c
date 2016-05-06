@@ -57,7 +57,6 @@ void pool_run(char *trace,char *config,char *output,char *log)
 	free(pool);
 }
 
-
 void pattern_recognize(struct pool_info *pool)
 {
 	unsigned int i;
@@ -68,6 +67,7 @@ void pattern_recognize(struct pool_info *pool)
 	for(i=pool->chunk_min;i<=pool->chunk_max;i++)
 	{
 		pool->chunk[i].pattern_last=pool->chunk[i].pattern;
+		pool->chunk[i].location=pool->chunk[i].location_next;
 
 		if(pool->chunk[i].req_sum_all==0)//no access
 		{
@@ -183,15 +183,7 @@ void pattern_recognize(struct pool_info *pool)
 		/************************************
 			update mapping information
 		*************************************/
-		if(pool->chunk[i].location_next==POOL_SCM)
-		{
-			if()
-			if(find_free(pool,POOL_SCM)!=-1)
-			{
-				
-			}
-		}
-		
+		update_map(pool,i);		
 	}//for
 
 	/*Update the pool info*/
